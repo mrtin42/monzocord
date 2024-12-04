@@ -1,4 +1,6 @@
 // test server that will take the information from a monzo webhook notification and send it to a discord channel.
+//
+// this script serves as a proof of concept for the integration of monzo's api with discord's system.
 
 import express from 'express'
 import axios from 'axios'

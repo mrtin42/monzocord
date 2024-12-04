@@ -1,42 +1,104 @@
-// Monzocord.
-//
-// Monzocord is a self-host only Discord bot that provides an easy, simple, and secure way to view your Monzo finances.
-// The bot is built using the Discord.js library and the Monzo API.
-// 
-// The bot is designed to be self-hosted and is not intended for public use, as stressed by the Monzo API terms of service.
-// It also means OAuth2 for granting access to your Monzo account is simplified and secure.
-//
-// Entry point and bot initialisation.
-// 1. Load environment variables.
-// 2. Create a new Discord client.
-// 3. Load commands and events.
-// 4. Login to Discord.
-//
-// To set up the bot, the user will need to install the Monzocord bot as a user application. Server implementations are not
-// supported to maximise user privacy. They will also need to set up a Monzo developer account and create a new OAuth2 client
-// application. The user will need to set up the environment variables in a .env file in the root directory of the bot.
-// The environment variables are:
-// - DISCORD_TOKEN: The Discord bot token.
-// - MONZO_CLIENT_ID: The Monzo OAuth2 client ID.
-// - MONZO_CLIENT_SECRET: The Monzo OAuth2 client secret.
-// - MONZO_REDIRECT_URI: The Monzo OAuth2 redirect URI.
-//
-// Once this is done, the user can run the bot using the command `npm start`, and begin authorising the bot to access their
-// Monzo account using the `/init` command.
-// The bot will reply with a link to authorise the bot client to access the user's Monzo account. The user will need to visit
-// this link and authorise the bot client. Once this is done, the user will be redirected to the redirect URI, which will
-// contain the authorisation code. The bot will automatically exchange this code for an access token and refresh token, and
-// store these in the bot's database. The bot will be ready to use once the user then opens their Monzo app and authorises
-// the data access.
-//
-// Obviously, the bot will NOT be able to do anything to the user's money. The bot is read-only and can only view the user's
-// transactions, balance, and other information. The only changes the bot is capable of making is webhook subscriptions.
-//
-// The bot is designed to be simple and secure, and the user's data is never stored on the bot's servers. The bot only stores
-// the access token and refresh token, and these are stored securely in the local database. Prospects for a future version
-// may include a public version of the bot, but due to database privacy and security concerns, this will take a long time.
-//
-// Let's get started!
+/**
+ * this is monzocord.
+ */
 
-// Load environment variables.
+let initialized = false;
 
+// imports -------------------------------------------------- //
+const vars: types.DotEnv = require('dotenv').config();        
+import { ActivityType, Client, ClientPresence, Collection, Events, InteractionEditReplyOptions, MessagePayload, Presence, SlashCommandBuilder } from 'discord.js';                          
+import { GatewayIntentBits } from 'discord.js';
+import { deploy } from './utils/deploy';
+import express from 'express';                                
+import axios from 'axios';                                    
+import path from 'path';                                      
+import fs from 'fs';                                          
+import transactionHandler from './utils/handle/transactions'; 
+import * as types from './utils/constants/types';             
+// ---------------------------------------------------------- //
+
+
+console.log(`[PROCESS] Welcome to monzocord`);
+console.log('[PROCESS] Declaring Discord.js client')
+// client set up
+const client = new Client({
+    intents: [
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.DirectMessages
+    ],
+});
+
+const commands: {
+    collection: Collection<string, types.ExportedCommand>,
+    data: any[]
+} = {
+    collection: new Collection(),
+    data: []
+}
+const commandsDirectoryPath = path.join(__dirname, './commands');
+console.log('[PROCESS] Assembling command library');
+
+for (const folder of fs.readdirSync(commandsDirectoryPath)) {
+    console.log(`[PROCESS] Processing ${folder}`);
+    const cmdPath = path.join(commandsDirectoryPath, folder);
+    const files = fs.readdirSync(cmdPath).filter(file => file == 'command.ts');
+    for (const file of files) {
+        console.log('[PROCESS] Found the following files:')
+
+        const filePath = path.join(cmdPath, file);
+        const module = require(filePath);
+        const command: types.ExportedCommand | any = module.command;
+        if ('data' in command && 'execute' in command) {
+            console.log(`[PROCESS] Adding ${command.data.name} to command library`);
+            commands.collection.set(command.data.name, command);
+            if (command.data instanceof SlashCommandBuilder) {
+                commands.data.push(command.data.toJSON() as any)
+            }
+        } else if (!('data' in command) && 'execute' in command) {
+            console.error(`[PROCESS] Could not add the command in ${filePath} to the command library: missing command data`);
+        } else if (!('execute' in command) && 'data' in command) { 
+            console.error(`[PROCESS] Could not add command ${command.data.name} in ${filePath} to the command library: missing execute function`);
+        } else if (!('execute' in command) && !('data' in command)) {
+            console.error(`[PROCESS] Could not add the command in ${filePath} to the command library: missing command data and execute function`);
+        }
+    }
+}
+
+deploy(commands.data);
+
+client.on(Events.ClientReady, (e) => {
+    console.log('[PROCESS] Client is ready');
+    console.log('[DISCORD] Logged in as', client.user?.tag);
+    client.user?.setPresence({
+        status: 'dnd',
+        activities: [{
+            type: ActivityType.Custom,
+            name: 'stealing your credit cards'
+        }]
+    })
+})
+
+client.on(Events.InteractionCreate, async (interaction) => {
+    console.log('[DISCORD] Interaction received');
+    if (!interaction.isChatInputCommand()) return console.error('[DISCORD] Interaction is not a chat input command, ignoring');
+    const cmd: any = commands.collection.get(interaction.commandName)
+    if (!cmd) {
+        console.error(`[DISCORD] Command ${interaction.commandName} does not exist`);
+        return interaction.reply({
+            content: '🤔 This command does not exist.'
+        });
+    } else {
+        try {
+            console.log(`[DISCORD] Executing command ${interaction.commandName}`);
+            await interaction.deferReply()
+            const res: InteractionEditReplyOptions = await cmd.execute(interaction)
+            await interaction.editReply(res)
+            console.log(`[DISCORD] Command ${interaction.commandName} executed successfully`);
+        } catch (e) {
+            console.error('[PROCESS] exception occured:')
+            console.error(e)
+        }
+    }
+})
+
+client.login(process.env.DISCORD_APP_TOKEN)
