@@ -12,7 +12,7 @@ export const deploy = async (commands: any) => {
     // and deploy your commands!
     (async () => {
         try {
-            console.log(`Started refreshing ${commands.length} application (/) commands.`);
+            console.log(`[PROCESS] Deploying ${commands.length} commands to Discord`);
     
             // The put method is used to fully refresh all commands in the guild with the current set
             const data: any = await rest.put(
@@ -20,7 +20,7 @@ export const deploy = async (commands: any) => {
                 { body: commands }
             );
     
-            console.log(`Successfully reloaded ${data.length} application (/) commands.`);
+            console.log(`[PROCESS] Successfully deployed ${data.length} commands to Discord!`);
         } catch (error) {
             // And of course, make sure you catch and log any errors!
             console.error(error);
