@@ -272,7 +272,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 if (!initialized && interaction.commandName !== 'login') {
                     await interaction.reply({
                         content: '🔒 Please log in first.',
-                        ephemeral: interaction.options.getBoolean('public') ? !interaction.options.getBoolean('public') : true
+                        ephemeral: true
                     });
                 } else {
                     const ephemeral = interaction.options.getBoolean('public') ?? false;
