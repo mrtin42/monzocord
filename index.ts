@@ -16,8 +16,11 @@ let auth: types.Auth = {
     expiry: new Date()
 }
 
+let recentTransaction: Boolean = false;
+
 // imports -------------------------------------------------- //
-const vars: types.DotEnv = require('dotenv').config();        
+require('dotenv').config();
+const vars: types.DotEnv = process.env as types.DotEnv
 import { ActionRowBuilder, ActivityType, ButtonBuilder, ButtonStyle, Client, ClientPresence, Collection, EmbedBuilder, Events, InteractionEditReplyOptions, MessagePayload, Presence, SlashCommandBuilder } from 'discord.js';                          
 import { GatewayIntentBits } from 'discord.js';
 import { deploy } from './utils/deploy';
@@ -26,6 +29,7 @@ import axios from 'axios';
 import path from 'path';                                      
 import fs from 'fs';
 import * as types from './utils/constants/types';             
+import e from 'express';
 // ---------------------------------------------------------- //
 
 
@@ -86,7 +90,7 @@ const loginCommand: types.ExportedCommand = {
         console.log('[PROCESS] Generating state token');
         const state = Math.random().toString(36).substring(7);
         console.log('[PROCESS] Generating login URL');
-        const loginUrl = `https://auth.monzo.com/?client_id=${process.env.MONZO_CLIENT_ID}&redirect_uri=${process.env.MONZO_REDIRECT_URI}&response_type=code&state=${state}`;
+        const loginUrl = `https://auth.monzo.com/?client_id=${vars.MONZO_CLIENT_ID}&redirect_uri=${vars.MONZO_REDIRECT_URI}&response_type=code&state=${state}`;
         console.log('[DISCORD] Setting buttons');
         const button = new ButtonBuilder()
             .setStyle(ButtonStyle.Link)
@@ -107,7 +111,7 @@ const loginCommand: types.ExportedCommand = {
                 if (received !== state) {
                     console.error('[PROCESS] State token mismatch: possible CSRF attack');
                     console.error(`[PROCESS] ABORTING LOGIN PROCESS AND NOTIFYING USER`);
-                    const page = fs.readFileSync(path.join(__dirname, './static/html/csrf.html'), 'utf8');
+                    const page = fs.readFileSync(path.join(__dirname, './static/html/possiblecsrf.html'), 'utf8');
                     interaction.editReply({ embeds: [
                         new EmbedBuilder()
                             .setAuthor({ name: 'monzocord', iconURL: 'https://cdn.sanity.io/images/rn4tswnp/production/0220ab893f5262b8024fb897d63f251bed0ef28d-1700x1250.jpg?w=2048&fit=max&auto=format' })
@@ -120,9 +124,9 @@ const loginCommand: types.ExportedCommand = {
                 console.log('[PROCESS] Requesting access token');
                 const params = new URLSearchParams();
                 params.append('grant_type', 'authorization_code');
-                params.append('client_id', process.env.MONZO_CLIENT_ID as string);
-                params.append('client_secret', process.env.MONZO_CLIENT_SECRET as string);
-                params.append('redirect_uri', process.env.MONZO_REDIRECT_URI as string);
+                params.append('client_id', vars.MONZO_CLIENT_ID as string);
+                params.append('client_secret', vars.MONZO_CLIENT_SECRET as string);
+                params.append('redirect_uri', vars.MONZO_REDIRECT_URI as string);
                 params.append('code', code as string);
                 const response = await axios.post('https://api.monzo.com/oauth2/token', params, {
                     headers: {
@@ -154,22 +158,23 @@ const loginCommand: types.ExportedCommand = {
                             .setColor('#ff4f40')
                     ], components: [] });
                 }
+                const { data } = response
                 console.log('[PROCESS] Access token received');
-                console.log('[PROCESS] Saving access token: ', response.data.access_token);
-                auth.token = response.data.access_token;
-                console.log('[PROCESS] Saving refresh token: ', response.data.refresh_token);
-                auth.refresh = response.data.refresh_token;
-                console.log('[PROCESS] Saving user ID: ', response.data.user_id);
-                auth.user = response.data.user_id;
+                console.log('[PROCESS] Saving tokens');
+                auth = {
+                    token: data.access_token,
+                    refresh: data.refresh_token,
+                    user: data.user_id,
+                    expiry: new Date(Date.now() + response.data.expires_in * 1000)
+                }
                 console.log('[PROCESS] Saving access token expiry: ', new Date(Date.now() + response.data.expires_in * 1000));
-                auth.expiry = new Date(Date.now() + response.data.expires_in * 1000);
                 console.log('[PROCESS] Initiating refresh token rotation: ', response.data.expires_in * 1000);
                 setInterval(async () => {
                     console.log('[PROCESS] Refreshing access token');
                     const response = await axios.post('https://api.monzo.com/oauth2/token', {
                         grant_type: 'refresh_token',
-                        client_id: process.env.MONZO_CLIENT_ID,
-                        client_secret: process.env.MONZO_CLIENT_SECRET,
+                        client_id: vars.MONZO_CLIENT_ID,
+                        client_secret: vars.MONZO_CLIENT_SECRET,
                         refresh_token: auth.refresh
                     });
                     console.log('[PROCESS] Access token refreshed');
@@ -205,8 +210,8 @@ const loginCommand: types.ExportedCommand = {
                 server.close();
             });
 
-            const server = app.listen(process.env.PORT, () => {
-                console.log(`[PROCESS] Callback server listening on port ${process.env.PORT}`);
+            const server = app.listen(vars.CALLBACK_SERVER_PORT, () => {
+                console.log(`[PROCESS] Callback server listening on port ${vars.CALLPORT}`);
                 const shutdown = () => {
                     console.log('[PROCESS] Shutting down callback server');
                 }
@@ -236,6 +241,70 @@ const loginCommand: types.ExportedCommand = {
         }
     }
 }
+
+const webhooks = express();
+webhooks.use(express.json());
+
+webhooks.post('/monzo', async (req, res) => {
+    console.log('[MONZO] Event received');
+    console.log(`[MONZO] Event type: ${req.body.type}`);
+    if (req.body.type !== 'transaction.created') {
+        console.log('[MONZO] Ignoring event');
+        res.status(200).send('OK');
+    };
+    console.log('Parsing transaction');
+    const event = req.body.data
+    const amount = event.amount < 0 ? event.amount : event.amount * -1;
+    const transaction: types.TransactionInfo = {
+        when: new Date(event.created),
+        where: event.merchant?.name ?? 'No merchant',
+        what: event.description ?? null,
+        direction: amount < 0 ? 'out' : 'in',
+        amount: Number(Math.abs((amount * -1)/100).toFixed(2)),
+        currency: event.currency == 'GBP' ? '£' : `${event.currency} `
+    };
+    if (transaction.what.startsWith('pot') && recentTransaction) {
+        // dont send the full embed if it is a roundup
+        await client.users.fetch(vars.DISCORD_USER_ID).then(async user => {
+            console.log('[DISCORD] Sending message');
+            const sent = await user.send({
+                content: `💰 ${transaction.currency}${transaction.amount} into your roundups pot`
+            });
+            if (sent) {
+                console.log('[DISCORD] Message sent');
+            }
+            recentTransaction = false;
+        });
+        res.status(200).send('OK');
+        return;
+    }
+    recentTransaction = true;
+    setTimeout(() => {
+        recentTransaction = false;
+    }, 15000); 
+    await client.users.fetch(vars.DISCORD_USER_ID).then(async user => {
+        console.log('[DISCORD] Sending message');
+        const sent = await user.send({
+            content: `${transaction.direction == 'in' ? '🤑' : '💳'} ${transaction.currency}${transaction.amount} ${transaction.direction.toUpperCase}: ${transaction.where}`,
+            embeds: [
+                new EmbedBuilder()
+                    .setAuthor({ name: 'monzocord', iconURL: 'https://cdn.sanity.io/images/rn4tswnp/production/0220ab893f5262b8024fb897d63f251bed0ef28d-1700x1250.jpg?w=2048&fit=max&auto=format' })
+                    .setTitle(`${transaction.currency}${transaction.amount} ${transaction.direction} ${transaction.what.startsWith('pot') ? 'your pot' : 'at ' + transaction.where}`)
+                    .setDescription(`${transaction.what} on ${transaction.when.toDateString()}`)
+                    .setFooter({ text: 'View more details in the Monzo app' }),
+            ]
+        });
+        if (sent) {
+            console.log('[DISCORD] Message sent');
+        }
+        
+    });
+    res.status(200).send('OK');
+});
+
+const webhookServer = webhooks.listen(Number(vars.WEBHOOK_SERVER_PORT), () => {
+    console.log(`[PROCESS] Webhook server listening on port ${vars.WEBHOOK_SERVER_PORT}`);
+});
 
 commands.collection.set(loginCommand.data.name, loginCommand);
 commands.data.push(loginCommand.data instanceof SlashCommandBuilder ? loginCommand.data.toJSON() as any : loginCommand.data);
@@ -292,4 +361,4 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 })
 
-client.login(process.env.DISCORD_APP_TOKEN)
+client.login(vars.DISCORD_APP_TOKEN)

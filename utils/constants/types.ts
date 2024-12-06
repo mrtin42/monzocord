@@ -1,10 +1,12 @@
 import { InteractionEditReplyOptions, SlashCommandBuilder, SlashCommandOptionsOnlyBuilder } from "discord.js";
 
 interface DotEnv extends NodeJS.ProcessEnv {
-    PORT: string,
+    CALLBACK_SERVER_PORT: string,
+    WEBHOOK_SERVER_PORT: string,
     NODE_ENV: string,
     DISCORD_WEBHOOK_LINK: string,
     DISCORD_APP_ID: string,
+    DISCORD_USER_ID: string,
     DISCORD_APP_TOKEN: string,
     MONZO_CLIENT_ID: string,
     MONZO_CLIENT_SECRET: string,
@@ -21,6 +23,15 @@ type ExportedCommand = {
     autocomplete?: (interaction: any, auth: Auth) => Promise<any>
 }
 
+type TransactionInfo = {
+    when: Date,
+    where: string,
+    what: string,
+    amount: number,
+    currency: string,
+    direction: 'in' | 'out',
+}
+
 type Auth = {
     token: string,
     refresh: string,
@@ -28,4 +39,4 @@ type Auth = {
     expiry: Date,
 }
 
-export { DotEnv, ExportedCommand, Auth };
+export { DotEnv, ExportedCommand, TransactionInfo, Auth };
