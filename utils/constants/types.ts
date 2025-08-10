@@ -4,7 +4,6 @@ interface DotEnv extends NodeJS.ProcessEnv {
     CALLBACK_SERVER_PORT: string,
     WEBHOOK_SERVER_PORT: string,
     NODE_ENV: string,
-    DISCORD_WEBHOOK_LINK: string,
     DISCORD_APP_ID: string,
     DISCORD_USER_ID: string,
     DISCORD_APP_TOKEN: string,

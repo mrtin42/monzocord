@@ -25,6 +25,7 @@
     "discord.js": "^14.16.3",
     "dotenv": "^16.4.6",
     "express": "^4.21.1",
+    "form-data": "^4.0.4",
     "tsx": "^4.19.2"
   },
   "devDependencies": {
