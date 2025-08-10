@@ -251,17 +251,32 @@ webhooks.post('/monzo', async (req, res) => {
     if (req.body.type !== 'transaction.created') {
         console.log('[MONZO] Ignoring event');
         res.status(200).send('OK');
+        return;
     };
     console.log('Parsing transaction');
     const event = req.body.data
-    const amount = event.amount < 0 ? event.amount : event.amount * -1;
+    const amount = event.amount / 100;
+    if (amount === 0) {
+        console.log('Card authorisation or validation — sending minimal message');
+        await client.users.fetch(vars.DISCORD_USER_ID).then(async user => {
+            console.log('[DISCORD] Sending message');
+            const sent = await user.send({
+                content: `💳 Card authorisation or validation for account **${event.account_id}**`
+            });
+            if (sent) {
+                console.log('[DISCORD] Message sent');
+            }
+        });
+        res.status(200).send('OK');
+        return;
+    }
     const transaction: types.TransactionInfo = {
         when: new Date(event.created),
         where: event.merchant?.name ?? 'No merchant',
         what: event.description ?? null,
         direction: amount < 0 ? 'out' : 'in',
-        amount: Number(Math.abs((amount * -1)/100).toFixed(2)),
-        currency: event.currency == 'GBP' ? '£' : `${event.currency} `
+        amount: Number(Math.abs((amount < 0 ? amount * -1 : amount)).toFixed(2)),
+        currency: event.currency == 'GBP' ? '£' : `${event.currency == 'EUR' ? '€' : event.currency == 'USD' ? '$' : event.currency}`,
     };
     if (transaction.what.startsWith('pot') && recentTransaction) {
         // dont send the full embed if it is a roundup
@@ -277,29 +292,33 @@ webhooks.post('/monzo', async (req, res) => {
         });
         res.status(200).send('OK');
         return;
-    }
-    recentTransaction = true;
-    setTimeout(() => {
-        recentTransaction = false;
-    }, 15000); 
-    await client.users.fetch(vars.DISCORD_USER_ID).then(async user => {
-        console.log('[DISCORD] Sending message');
-        const sent = await user.send({
-            content: `${transaction.direction == 'in' ? '🤑' : '💳'} ${transaction.currency}${transaction.amount} ${transaction.direction.toUpperCase}: ${transaction.where}`,
-            embeds: [
-                new EmbedBuilder()
-                    .setAuthor({ name: 'monzocord', iconURL: 'https://cdn.sanity.io/images/rn4tswnp/production/0220ab893f5262b8024fb897d63f251bed0ef28d-1700x1250.jpg?w=2048&fit=max&auto=format' })
-                    .setTitle(`${transaction.currency}${transaction.amount} ${transaction.direction} ${transaction.what.startsWith('pot') ? 'your pot' : 'at ' + transaction.where}`)
-                    .setDescription(`${transaction.what} on ${transaction.when.toDateString()}`)
-                    .setFooter({ text: 'View more details in the Monzo app' }),
-            ]
+    } else {
+        recentTransaction = true;
+        setTimeout(() => {
+            recentTransaction = false;
+        }, 15000); 
+        await client.users.fetch(vars.DISCORD_USER_ID).then(async user => {
+            console.log('[DISCORD] Sending message');
+            const sent = await user.send({
+                content: `${transaction.direction == 'in' ? '🤑' : '💳'} ${transaction.currency}${transaction.amount} ${transaction.direction.toUpperCase()}: ${transaction.where}`,
+                embeds: [
+                    new EmbedBuilder()
+                        .setAuthor({ name: 'monzocord', iconURL: 'https://cdn.sanity.io/images/rn4tswnp/production/0220ab893f5262b8024fb897d63f251bed0ef28d-1700x1250.jpg?w=2048&fit=max&auto=format' })
+                        .setTitle(`${transaction.currency}${transaction.amount} ${transaction.direction} ${transaction.what.startsWith('pot') ? `${transaction.direction == 'in' ? 'from' : 'to'} your pot` : `at ${transaction.where}`}`)
+                        .setDescription(`${transaction.what}`)
+                        .setFooter({ text: 'View more details in the Monzo app' })
+                        .setTimestamp(transaction.when)
+                        .setColor(transaction.direction == 'in' ? '#00ff00' : '#ff4f40'),
+                ]
+            });
+            if (sent) {
+                console.log('[DISCORD] Message sent');
+            }
+            
         });
-        if (sent) {
-            console.log('[DISCORD] Message sent');
-        }
-        
-    });
-    res.status(200).send('OK');
+        res.status(200).send('OK');
+        return;
+    }
 });
 
 const webhookServer = webhooks.listen(Number(vars.WEBHOOK_SERVER_PORT), () => {
