@@ -200,7 +200,8 @@ const loginCommand: types.ExportedCommand = {
                     new EmbedBuilder()
                         .setAuthor({ name: 'monzocord', iconURL: 'https://cdn.sanity.io/images/rn4tswnp/production/0220ab893f5262b8024fb897d63f251bed0ef28d-1700x1250.jpg?w=2048&fit=max&auto=format' })
                         .setTitle('Success!')
-                        .setDescription(`You've successfully logged in to monzocord!`)
+                        .setDescription(`You've successfully logged in to monzocord!\n\n⚠️ **Don't forget to approve data access in the Monzo app! monzocord will not work until you do so!**\n${process.env.ENVIRONMENT === 'codespaces' ? 'Enabling notifications? Remember to set the port forwarding to **public** in the Codespaces settings!' : ''}`)
+                        .setFooter({ text: `monzocord is not affiliated with Monzo Bank Ltd. in any way.` })
                         .setColor('#ff4f40')
                 ], components: [] });
                 initialized = true;
@@ -261,7 +262,15 @@ webhooks.post('/monzo', async (req, res) => {
         await client.users.fetch(vars.DISCORD_USER_ID).then(async user => {
             console.log('[DISCORD] Sending message');
             const sent = await user.send({
-                content: `💳 Card authorisation or validation for account **${event.account_id}**`
+                content: `💳 Card check with ${event.merchant?.name ?? 'Unknown merchant'}`,
+                embeds: [
+                    new EmbedBuilder()
+                    .setTitle(`Card check at ${event.merchant?.name ?? 'Unknown merchant'}`)
+                    .setDescription(`If you didn't recently register this card at the merchant, please check your Monzo app and contact Monzo support if necessary.`)
+                    .setColor('#ff4f40')
+                    .setFooter({ text: 'View more details in the Monzo app' })
+                    .setTimestamp(new Date(event.created))
+                ]
             });
             if (sent) {
                 console.log('[DISCORD] Message sent');
@@ -303,9 +312,9 @@ webhooks.post('/monzo', async (req, res) => {
                 content: `${transaction.direction == 'in' ? '🤑' : '💳'} ${transaction.currency}${transaction.amount} ${transaction.direction.toUpperCase()}: ${transaction.where}`,
                 embeds: [
                     new EmbedBuilder()
-                        .setAuthor({ name: 'monzocord', iconURL: 'https://cdn.sanity.io/images/rn4tswnp/production/0220ab893f5262b8024fb897d63f251bed0ef28d-1700x1250.jpg?w=2048&fit=max&auto=format' })
                         .setTitle(`${transaction.currency}${transaction.amount} ${transaction.direction} ${transaction.what.startsWith('pot') ? `${transaction.direction == 'in' ? 'from' : 'to'} your pot` : `at ${transaction.where}`}`)
                         .setDescription(`${transaction.what}`)
+                        .setThumbnail(event.merchant?.logo ?? 'https://cdn.sanity.io/images/rn4tswnp/production/0220ab893f5262b8024fb897d63f251bed0ef28d-1700x1250.jpg?w=2048&fit=max&auto=format')
                         .setFooter({ text: 'View more details in the Monzo app' })
                         .setTimestamp(transaction.when)
                         .setColor(transaction.direction == 'in' ? '#00ff00' : '#ff4f40'),

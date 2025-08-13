@@ -9,7 +9,8 @@ const command: ExportedCommand = {
         .setDescription('Get your Monzo balance.')
         .setContexts([0,1,2])
         .addStringOption(option => option.setName('account').setDescription('The account ID to fetch the balance for.').setRequired(true).setAutocomplete(true))
-        .addBooleanOption(option => option.setName('public').setDescription('Set if the response should be visible to everyone. Default is false.').setRequired(false)),
+        .addBooleanOption(option => option.setName('public').setDescription('Set if the response should be visible to everyone. Default is false.').setRequired(false))
+        .addBooleanOption(option => option.setName('showtotal').setDescription('Set if your total (incl. pots) should show. Default is false.').setRequired(false)),
     async autocomplete(interaction: ChatInputCommandInteraction, auth: Auth): Promise<any> {
         const accounts = await axios.get('https://api.monzo.com/accounts', {
             headers: {
@@ -72,17 +73,19 @@ const command: ExportedCommand = {
         const spent = Math.abs((data.spend_today * -1) / 100).toFixed(2);
         const total = Math.abs(data.total_balance / 100).toFixed(2);
         const currency = data.currency === 'GBP' ? '£' : '$'; // monzo currently only operates in the UK and USA, using their respective currencies.
+        const includeTotal = interaction.options.getBoolean('showtotal') || false;
         const embed = new EmbedBuilder()
             .setColor('#ff4f40')
             .setAuthor({
                 name: 'monzocord',
                 iconURL: 'https://cdn.sanity.io/images/rn4tswnp/production/0220ab893f5262b8024fb897d63f251bed0ef28d-1700x1250.jpg?w=2048&fit=max&auto=format'
-            })
-            .setTitle(`Your Monzo balance: ${currency}${bal}`)
-            .setDescription(`You have spent ${currency}${spent} today.`)
-            .setFooter({
-                text: `Total balance (includes pots): ${currency}${total}`
+            }).setTitle(`Available balance: ${currency}${bal}`)
+            .addFields(
+                { name: 'Spent today', value: `${currency}${spent}`, inline: true }
+            ).setFooter({
+                text: `Requested by ${interaction.user.username}`,
             }).setTimestamp();
+        if (includeTotal) embed.addFields({ name: 'Total balance (incl. pots)', value: `${currency}${total}`, inline: true });
         return { embeds: [embed] };
     }
 }

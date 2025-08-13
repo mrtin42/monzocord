@@ -1,4 +1,4 @@
-import { InteractionEditReplyOptions, SlashCommandBuilder, SlashCommandOptionsOnlyBuilder } from "discord.js";
+import { InteractionEditReplyOptions, SlashCommandBuilder, SlashCommandOptionsOnlyBuilder, SlashCommandSubcommandsOnlyBuilder } from "discord.js";
 
 interface DotEnv extends NodeJS.ProcessEnv {
     CALLBACK_SERVER_PORT: string,
@@ -12,12 +12,7 @@ interface DotEnv extends NodeJS.ProcessEnv {
 }
 
 type ExportedCommand = {
-    data: {
-        name: string,
-        contexts: number[],
-        description: string,
-        options: any[]
-    } | SlashCommandBuilder | SlashCommandOptionsOnlyBuilder,
+    data: SlashCommandBuilder | SlashCommandOptionsOnlyBuilder | SlashCommandSubcommandsOnlyBuilder,
     execute: (interaction: any, auth?: Auth ) => Promise<InteractionEditReplyOptions>,
     autocomplete?: (interaction: any, auth: Auth) => Promise<any>
 }
